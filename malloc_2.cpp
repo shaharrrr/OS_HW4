@@ -2,13 +2,14 @@
 #include "BlocksList.h"
 
 //TODO: add global list pointer (and initialize it?)
+MallocMetadata* metadata_head = nullptr;
 
 void* smalloc(size_t size) {
-
+    
 }
 
 void* scalloc(size_t num, size_t size) {
-
+    
 }
 
 void sfree(void* p) {
