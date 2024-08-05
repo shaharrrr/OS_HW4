@@ -1,11 +1,7 @@
 #include <unistd.h>
+#include "BlocksList.h"
 
-struct MallocMetadata {
-    size_t size;
-    bool is_free;
-    MallocMetadata* next;
-    MallocMetadata* prev;
-};
+//TODO: add global list pointer (and initialize it?)
 
 void* smalloc(size_t size) {
 
