@@ -50,17 +50,17 @@ BlocksList::BlocksList() {
 // Function to insert a new node.
 void BlocksList::insertBlock(MallocMetadata* newBlock)
 {
-    // Create the new Node.
-    Node* newNode = new Node(data);
-
     // Assign to head
     if (head == NULL) {
-        head = newNode;
+        head = newBlock;
+        head->prev = NULL;
+        head->next = NULL;
+        ++length;
         return;
     }
 
     // Traverse till end of list
-    Node* temp = head;
+    MallocMetadata* temp = head;
     while (temp->next != NULL) {
 
         // Update temp
@@ -68,24 +68,25 @@ void BlocksList::insertBlock(MallocMetadata* newBlock)
     }
 
     // Insert at the last.
-    temp->next = newNode;
+    temp->next = newBlock;
+    ++length;
 }
 
 // Function to print the
 // nodes of the linked list.
-void BlocksList::printList()
-{
-    Node* temp = head;
-
-    // Check for empty list.
-    if (head == NULL) {
-        cout << "List empty" << endl;
-        return;
-    }
-
-    // Traverse the list.
-    while (temp != NULL) {
-        cout << temp->data << " ";
-        temp = temp->next;
-    }
-}
+//void BlocksList::printList()
+//{
+//    Node* temp = head;
+//
+//    // Check for empty list.
+//    if (head == NULL) {
+//        cout << "List empty" << endl;
+//        return;
+//    }
+//
+//    // Traverse the list.
+//    while (temp != NULL) {
+//        cout << temp->data << " ";
+//        temp = temp->next;
+//    }
+//}

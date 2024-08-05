@@ -21,7 +21,7 @@ public:
     void insertBlock(MallocMetadata* newBlock);
 
     // Function to print the linked list.
-    void printList();
+    //void printList();
 
     // Function to delete the node at given position
     //void deleteBlock(MallocMetadata* block);
