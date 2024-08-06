@@ -2,8 +2,7 @@
 #define BLOCKSLIST_H
 
 struct MallocMetadata {
-    size_t allocated_size;      //original size of the block as was allocated
-    size_t used_size;           //current size used (could be smaller than allocated size)
+    size_t size;                //the size of the block as was allocated
     bool is_free;               //indicates if the block is used or free
     MallocMetadata* next;       //pointer to the next metadata struct
     MallocMetadata* prev;       //pointer to the previous metadata struct
