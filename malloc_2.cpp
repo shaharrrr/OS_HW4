@@ -1,3 +1,5 @@
+#include <stdio.h> // for size_t
+#include <cmath> // for pow
 #include <unistd.h>
 #include <cstring.h>
 #include "BlocksList.h"
@@ -7,12 +9,56 @@
 //TODO: add global list pointer (and initialize it?)
 MallocMetadata* metadata_head = nullptr;
 
+// Function to append metadata to the list
+void append_metadata (MallocMetadata* new_metadata) {
+    if (!metadata_head) {
+        metadata_head = new_metadata;
+    } else {
+        MallocMetadata* current = metadata_head;
+        while (current->next) {
+            current = current->next;
+        }
+        current->next = new_metadata;
+        new_metadata->next = NULL;
+        new_metadata->prev = current;
+    }
+}
+
 void* smalloc(size_t size) {
-    
+    // Check for invalid size
+    if (size == 0 || size > pow(10, 8)) {
+        return NULL;
+    }
+    // Search for a free block
+    MallocMetadata* current = metadata_head;
+    while (current) {
+        if (current->is_free && current->size >= size) {
+            current->is_free = false;
+            return (char*)current + sizeof(MallocMetadata); // Skip metadata
+        }
+        current = current->next;
+    }
+    // Allocate new block if no free block is found
+    void* result = sbrk(size + sizeof(MallocMetadata));
+    if (result == (void*)(-1)) {
+        return NULL;
+    }
+    MallocMetadata* new_metadata = (MallocMetadata*)result;
+    new_metadata->size = size;
+    new_metadata->is_free = false;
+    new_metadata->next = nullptr;
+    new_metadata->prev = nullptr;
+    append_metadata(new_metadata);
+    return (char*)result + sizeof(MallocMetadata); // Skip metadata
 }
 
 void* scalloc(size_t num, size_t size) {
-    
+    size_t total_size = num * size;
+    void* ptr = smalloc(total_size);
+    if (ptr) {
+        std::memset(ptr, 0, total_size);
+    }
+    return ptr;
 }
 
 void sfree(void* p) {
