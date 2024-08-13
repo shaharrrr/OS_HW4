@@ -16,11 +16,11 @@
     } while (0)
 
 /**
- * BlockManager Class:
+ * MemoryBlocksManager Class:
  * Manages memory allocation using a buddy system allocator.
  * It handles small allocations internally and delegates large allocations to mmap().
  */
-class BlockManager {
+class MemoryBlocksManager {
 private:
     /**
      * MallocMetadata Struct:
@@ -43,7 +43,7 @@ private:
     size_t totBlocks; // Total number of blocks
     size_t totBytes; // Total allocated bytes
     bool init_pool_flag; // Flag to check if the memory pool is initialized
-    MallocMetadata metaChain[MAX_ORDER + 1]; // Array of linked lists for different block sizes (buddy system)
+    MallocMetadata metadataList[MAX_ORDER + 1]; // Array of linked lists for different block sizes (buddy system)
 
     const int BLOCKS_SET_SIZE = 128; // Base block size in KB
     const int BLOCKS_SET_NUM = 32; // Number of blocks to initialize in the memory pool
@@ -99,15 +99,15 @@ private:
     int get_order(size_t size);
 
     // Private Constructor for Singleton Pattern
-    BlockManager();
+    MemoryBlocksManager();
 
 public:
     /**
-     * Retrieves the singleton instance of BlockManager.
-     * @return Reference to BlockManager instance
+     * Retrieves the singleton instance of MemoryBlocksManager.
+     * @return Reference to MemoryBlocksManager instance
      */
-    static BlockManager& getInstance() {
-        static BlockManager instance;
+    static MemoryBlocksManager& getInstance() {
+        static MemoryBlocksManager instance;
         return instance;
     }
 
@@ -140,15 +140,15 @@ public:
 };
 
 // Constructor initializes member variables
-BlockManager::BlockManager()
-    : offset(0), freeBlocks(0), freeBytes(0), totBlocks(0), totBytes(0), init_pool_flag(true), metaChain() {}
+MemoryBlocksManager::MemoryBlocksManager()
+    : offset(0), freeBlocks(0), freeBytes(0), totBlocks(0), totBytes(0), init_pool_flag(true), metadataList() {}
 
 /**
  * Lazy Initialization:
  * Initializes the memory pool by allocating a large contiguous block using sbrk().
  * Divides this block into smaller blocks managed by the buddy system.
  */
-void* BlockManager::lazy_init() {
+void* MemoryBlocksManager::lazy_init() {
     if (!init_pool_flag)
         return (void*)-1; // Already initialized
 
@@ -180,7 +180,7 @@ void* BlockManager::lazy_init() {
 /**
  * Checks if a linked list is empty.
  */
-bool BlockManager::isEmpty(MallocMetadata& list) {
+bool MemoryBlocksManager::isEmpty(MallocMetadata& list) {
     return list.next == nullptr;
 }
 
@@ -188,9 +188,9 @@ bool BlockManager::isEmpty(MallocMetadata& list) {
  * Adds a block to a linked list in an ordered manner based on memory address.
  * This ordering helps in identifying buddies during merging.
  */
-void BlockManager::add_to_list(int list_index, MallocMetadata* block) {
-    MallocMetadata* next_meta = metaChain[list_index].next;
-    MallocMetadata* prev_meta = &metaChain[list_index];
+void MemoryBlocksManager::add_to_list(int list_index, MallocMetadata* block) {
+    MallocMetadata* next_meta = metadataList[list_index].next;
+    MallocMetadata* prev_meta = &metadataList[list_index];
 
     while (next_meta) {
         if ((uintptr_t)next_meta > (uintptr_t)block) {
@@ -214,7 +214,7 @@ void BlockManager::add_to_list(int list_index, MallocMetadata* block) {
 /**
  * Removes a block from its linked list.
  */
-void BlockManager::remove_from_list(MallocMetadata* block) {
+void MemoryBlocksManager::remove_from_list(MallocMetadata* block) {
     block->prev->next = block->next;
     if (block->next)
         block->next->prev = block->prev;
@@ -225,9 +225,9 @@ void BlockManager::remove_from_list(MallocMetadata* block) {
 /**
  * Pops the first block from the specified linked list.
  */
-BlockManager::MallocMetadata* BlockManager::pop(int list_index) {
-    if (!isEmpty(metaChain[list_index])) {
-        MallocMetadata* res = metaChain[list_index].next;
+MemoryBlocksManager::MallocMetadata* MemoryBlocksManager::pop(int list_index) {
+    if (!isEmpty(metadataList[list_index])) {
+        MallocMetadata* res = metadataList[list_index].next;
         remove_from_list(res);
         return res;
     }
@@ -238,7 +238,7 @@ BlockManager::MallocMetadata* BlockManager::pop(int list_index) {
  * Splits a block into two equal halves and returns the new block.
  * Updates metadata and metrics accordingly.
  */
-BlockManager::MallocMetadata* BlockManager::split(MallocMetadata* m) {
+MemoryBlocksManager::MallocMetadata* MemoryBlocksManager::split(MallocMetadata* m) {
     size_t half_of_block = (m->size + sizeof(MallocMetadata)) / 2;
     MallocMetadata* res = (MallocMetadata*)((uintptr_t)m + half_of_block);
     
@@ -260,7 +260,7 @@ BlockManager::MallocMetadata* BlockManager::split(MallocMetadata* m) {
 /**
  * Allocates a memory block of the specified size using the buddy system.
  */
-void* BlockManager::alloc_block(size_t size) {
+void* MemoryBlocksManager::alloc_block(size_t size) {
     // Determine the appropriate order for the block size.
     // The order is determined based on the size of the block.
     // This helps in grouping blocks of similar sizes together for efficient allocation.
@@ -274,7 +274,7 @@ void* BlockManager::alloc_block(size_t size) {
     // Start from the order calculated and go up to the maximum order.
     for(int src_ord = dest_ord; src_ord <= MAX_ORDER; src_ord++) {
         // If the current order list is empty, continue to the next larger order.
-        if(isEmpty(metaChain[src_ord]))
+        if(isEmpty(metadataList[src_ord]))
             continue;
         
         // If we found a block in the current order list, try to split it down to the desired order.
@@ -318,7 +318,7 @@ void* BlockManager::alloc_block(size_t size) {
  * mmap() maps a file or device into memory, providing a way to allocate memory.
  * Here, it's used to allocate anonymous memory not backed by any file.
  */
-void* BlockManager::lalloc_block(size_t size) {
+void* MemoryBlocksManager::lalloc_block(size_t size) {
     // mmap() parameters:
     // - addr: nullptr (let the system choose the address)
     // - length: size + metadata size
@@ -343,7 +343,7 @@ void* BlockManager::lalloc_block(size_t size) {
 /**
  * Calculates the order (log base 2) for a given size based on the buddy system.
  */
-int BlockManager::get_order(size_t size) {
+int MemoryBlocksManager::get_order(size_t size) {
     int res = 0;
     for (size_t bytes = BLOCKS_SET_SIZE; res <= MAX_ORDER; bytes *= 2, res++) {
         if (size <= bytes - sizeof(MallocMetadata))
@@ -355,14 +355,14 @@ int BlockManager::get_order(size_t size) {
 /**
  * Retrieves the allocation pointer from the metadata pointer.
  */
-void* BlockManager::get_allocPtr(MallocMetadata* m) {
+void* MemoryBlocksManager::get_allocPtr(MallocMetadata* m) {
     return (void*)((uintptr_t)m + sizeof(MallocMetadata));
 }
 
 /**
  * Checks if a given size qualifies as a large allocation (i.e., larger than the maximum block size in the buddy system).
  */
-bool BlockManager::isLargeAlloc(size_t size) {
+bool MemoryBlocksManager::isLargeAlloc(size_t size) {
     return size > BLOCKS_SET_SIZE * KB - sizeof(MallocMetadata);
 }
 
@@ -372,12 +372,12 @@ bool BlockManager::isLargeAlloc(size_t size) {
  */
 void* smalloc(size_t size) {
     // Initialize the memory pool lazily
-    if (!BlockManager::getInstance().lazy_init() || size > 1e8 || size == 0)
+    if (!MemoryBlocksManager::getInstance().lazy_init() || size > 1e8 || size == 0)
         return nullptr; // Invalid size or initialization failure
 
-    if (BlockManager::getInstance().isLargeAlloc(size))
-        return BlockManager::getInstance().lalloc_block(size); // Large allocation
-    return BlockManager::getInstance().alloc_block(size); // Buddy system allocation
+    if (MemoryBlocksManager::getInstance().isLargeAlloc(size))
+        return MemoryBlocksManager::getInstance().lalloc_block(size); // Large allocation
+    return MemoryBlocksManager::getInstance().alloc_block(size); // Buddy system allocation
 }
 
 /**
