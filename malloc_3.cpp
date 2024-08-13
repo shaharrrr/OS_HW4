@@ -6,6 +6,7 @@
 // Maximum order for block sizes (i.e., 2^MAX_ORDER)
 #define MAX_ORDER 10
 #define KB 1024 // Define Kilobyte
+#define MAX_SIZE 1e8
 
 // Macro to perform sbrk() system call safely
 #define DO_SBRK(res, size)           \
@@ -40,8 +41,8 @@ private:
     uintptr_t offset; // Koren: base address offset for the memory pool
     size_t freeBlocks; // Number of free blocks
     size_t freeBytes; // Total free bytes
-    size_t totBlocks; // Total number of blocks
-    size_t totBytes; // Total allocated bytes
+    size_t totalBlocks; // Total number of blocks
+    size_t totalBytes; // Total allocated bytes
     bool init_pool_flag; // Flag to check if the memory pool is initialized
     MallocMetadata metadataList[MAX_ORDER + 1]; // Array of linked lists for different block sizes (buddy system)
 
@@ -141,7 +142,7 @@ public:
 
 // Constructor initializes member variables
 MemoryBlocksManager::MemoryBlocksManager()
-    : offset(0), freeBlocks(0), freeBytes(0), totBlocks(0), totBytes(0), init_pool_flag(true), metadataList() {}
+    : offset(0), freeBlocks(0), freeBytes(0), totalBlocks(0), totalBytes(0), init_pool_flag(true), metadataList() {}
 
 /**
  * Lazy Initialization:
@@ -171,8 +172,8 @@ void* MemoryBlocksManager::lazy_init() {
     // Update metrics
     freeBlocks = BLOCKS_SET_NUM;
     freeBytes = BLOCKS_SET_NUM * (BLOCKS_SET_SIZE * KB - sizeof(MallocMetadata));
-    totBlocks = freeBlocks;
-    totBytes = freeBytes;
+    totalBlocks = freeBlocks;
+    totalBytes = freeBytes;
     init_pool_flag = false; // Mark as initialized
     return (void*)-1; // Return unused pointer
 }
@@ -244,9 +245,9 @@ MemoryBlocksManager::MallocMetadata* MemoryBlocksManager::split(MallocMetadata* 
     
     // Update metrics
     freeBlocks++;
-    totBlocks++;
+    totalBlocks++;
     freeBytes -= sizeof(MallocMetadata);
-    totBytes -= sizeof(MallocMetadata);
+    totalBytes -= sizeof(MallocMetadata);
 
     // Update sizes
     m->size = half_of_block - sizeof(MallocMetadata);
@@ -335,8 +336,8 @@ void* MemoryBlocksManager::lalloc_block(size_t size) {
     block->size = size;
 
     // Update metrics
-    totBlocks++;
-    totBytes += size;
+    totalBlocks++;
+    totalBytes += size;
     return get_allocPtr(block);
 }
 
@@ -372,7 +373,7 @@ bool MemoryBlocksManager::isLargeAlloc(size_t size) {
  */
 void* smalloc(size_t size) {
     // Initialize the memory pool lazily
-    if (!MemoryBlocksManager::getInstance().lazy_init() || size > 1e8 || size == 0)
+    if (!MemoryBlocksManager::getInstance().lazy_init() || size > MAX_SIZE || size == 0)
         return nullptr; // Invalid size or initialization failure
 
     if (MemoryBlocksManager::getInstance().isLargeAlloc(size))
