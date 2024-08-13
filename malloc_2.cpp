@@ -42,6 +42,11 @@ private:
 
     // Helper Functions:
 
+    /**
+     * Retrieves the metadata pointer from the allocation pointer.
+     * @param m - Allocation pointer
+     * @return Metadata pointer
+     */
     mallocMetadata get_metadata(void* p);
 
     /**
@@ -335,7 +340,7 @@ void* srealloc(void* oldp, size_t size) {
         return oldp;
     }
 
-    size_t old_size = MemoryBlocksManager::getInstance().get_size(oldp)
+    size_t old_size = MemoryBlocksManager::getInstance().get_size(oldp);
     std::memmove(result, oldp, old_size);
     sfree(oldp);
     return result;

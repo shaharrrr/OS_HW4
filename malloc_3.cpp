@@ -52,6 +52,13 @@ private:
     // Helper Functions:
 
     /**
+     * Retrieves the metadata pointer from the allocation pointer.
+     * @param m - Allocation pointer
+     * @return Metadata pointer
+     */
+    mallocMetadata get_metadata(void* p);
+
+    /**
      * Retrieves the allocation pointer from the metadata pointer.
      * @param m - Pointer to MallocMetadata
      * @return Allocation pointer
@@ -93,6 +100,22 @@ private:
     bool isEmpty(MallocMetadata& list);
 
     /**
+     * Joins between a free block to its buddy block, if possible
+     * @param free_block - Pointer to the candidate free block to be joined to its buddy
+     * @return True if join was successful, otherwise False
+     */
+    bool join(mallocMetadata* free_block);
+
+    /**
+     * Checks if a candidate free block can join a buddy with a specified size
+     * @param free_block - Pointer to the candidate free block looking for a buddy to join
+     * @param size - Size of the candidate block
+     * @param dest_size - S0ize of the destination buddy to be joined
+     * @return True if join was successful, otherwise False
+     */
+    bool can_join(mallocMetadata free_block, size_t size, size_t dest_size);
+
+    /**
      * Calculates the order (log base 2) for a given size based on the buddy system.
      * @param size - Desired size
      * @return Order index or -1 if size exceeds maximum
@@ -127,6 +150,21 @@ public:
     void* lalloc_block(size_t size);
 
     /**
+     * Re-allocate block pointed by oldp to block of size 'size'.
+     * @param oldp - Pointer to the block to free
+     * @param size - Size of the new block
+     * @return Pointer to the allocated memory
+     */
+    void* realloc_block(void* oldp, size_t size);
+
+    /**
+     * Free a block pointed by p.
+     * @param p - Pointer to the block to free
+     * @return void
+     */
+    void free_block(void* p);
+
+    /**
      * Initializes the memory pool lazily on first allocation.
      * @return Void pointer (unused)
      */
@@ -138,6 +176,43 @@ public:
      * @return True if large, else False
      */
     bool isLargeAlloc(size_t size);
+
+    /**
+     * Returns the size of MallocMetadata struct
+     * @return size of MallocMetadata struct
+     */
+    static size_t get_metadata_size();
+
+    /**
+     * Returns the size of the block pointed by p
+     * @param p - Pointer to the memory block
+     * @return Pointer to the allocated memory or nullptr on failure
+     */
+    size_t get_size(void* p);
+
+    /**
+     * Returns the total number of blocks allocated now
+     * @return size of MallocMetadata struct
+     */
+    size_t get_totalBlocks();
+
+    /**
+     * Returns the total number of bytes allocated now
+     * @return size of MallocMetadata struct
+     */
+    size_t get_totalBytes();
+
+    /**
+     * Returns the total number of free blocks
+     * @return size of MallocMetadata struct
+     */
+    size_t get_freeBlocks();
+
+    /**
+     * Returns the total number of free bytes allocated now
+     * @return size of MallocMetadata struct
+     */
+    size_t get_freeBytes();
 };
 
 // Constructor initializes member variables
@@ -183,6 +258,61 @@ void* MemoryBlocksManager::lazy_init() {
  */
 bool MemoryBlocksManager::isEmpty(MallocMetadata& list) {
     return list.next == nullptr;
+}
+
+/**
+ * Joins between a free block to its buddy block, if possible
+ */
+bool BlockManager::join(mallocMetadata* free_block){
+    if(get_order((*free_block)->size) == MAX_ORDER) {   //Can't join blocks of maximal size
+        return false;
+    }
+    //Get the potential buddy using the XOR trick provided by staff
+    mallocMetadata buddy = (mallocMetadata)((((uintptr_t)(*free_block) - offset)^((*free_block)->size + sizeof(struct MallocMetadata)))+offset);
+
+    if(!(buddy->is_free) || (buddy->size != (*free_block)->size)) { //If buddy is not free or not of equal size, can't join
+        return false;
+    }
+
+    remove_from_list(buddy);
+    if((uintptr_t)buddy < (uintptr_t)(*free_block)) {   //If buddy has a smaller address, swap between free-block and buddy to preserve order by ascending addresses
+        *free_block = buddy;
+    }
+    // Update metadata
+    (*free_block)->size = (*free_block)->size * 2 + sizeof(struct MallocMetadata);
+    (*free_block)->is_free = true;
+    (*free_block)->next = nullptr;
+    (*free_block)->prev = nullptr;
+    //Update statistics
+    freeBlocks--;
+    totalBlocks--;
+    freeBytes += sizeof(struct MallocMetadata);
+    totalBytes += sizeof(struct MallocMetadata);
+    return true;
+}
+
+/**
+ * Checks if a candidate free block can join a buddy with a specified size
+ */
+bool MemoryBlocksManager::can_join(mallocMetadata free_block, size_t size, size_t dest_size){
+    if(get_order(dest_size) == -1) {  //dest_size exceeds maximum manageable block size
+        return false;
+    }
+    if(size  >= dest_size) {  //Shahar: if size is bigger than dest_size can the block always join?
+        return true;
+    }
+    //Get the potential buddy using the XOR trick provided by staff
+    mallocMetadata buddy = (mallocMetadata)((((uintptr_t)free_block - offset)^size)+offset);
+
+    if(!(buddy->is_free) || (buddy->size != free_block->size)) { //If buddy is not free or not of equal size, return false
+        return false;
+    }
+
+    //If we reach this section, that means size is smaller than dest_size - check recursively with twice the current size
+    if((uintptr_t)buddy < (uintptr_t)free_block) {  //If buddy has a smaller address, check if buddy can join free block
+        return can_join(buddy, size * 2, dest_size);
+    }
+    return can_join(free_block, size*2, dest_size);
 }
 
 /**
@@ -342,6 +472,78 @@ void* MemoryBlocksManager::lalloc_block(size_t size) {
 }
 
 /**
+* Re-allocate block pointed by oldp to block of size 'size'.
+*/
+void* realloc_block(void* oldp, size_t size){
+    mallocMetadata block_metadata = get_metadata(oldp);
+    if(oldm->size >= size)
+        return oldp;
+    if(can_join(oldm,oldm->size+sizeof(struct MallocMetadata), size)){
+        freeBytes += oldm->size;
+        oldm->is_free = true;
+        while(oldm->size < size)
+            join(&oldm);
+        freeBytes -= oldm->size;
+        oldm->is_free = false;
+        return get_allocPtr(oldm);
+    }
+    return alloc_block(size);
+}
+
+/**
+ * Frees a block pointed by p.
+ */
+void MemoryBlocksManager::free_block(void *p) {}(void* p){
+    if(!p){     //If p is NULL, simply return
+        return;
+    }
+    mallocMetadata block_metadata = get_metadata(p);
+    if(block_metadata->is_free) {   //if the block is already free, simply return
+        return;
+    }
+    if(isLargeAlloc(block_metadata->size)){     //if block is a lerge allocation, use unmap with size alligned as a multiple of PAGESIZE
+        //Update statistics
+        totalBlocks--;
+        totalBytes -= block_metadata->size;
+        //get allocated-size as a multiple of PAGESIZE and use munmap
+        int size_allocated = m->size+sizeof(struct MallocMetadata);
+        int pageSize = sysconf(_SC_PAGESIZE);
+        if(size_allocated%pageSize != 0)
+            size_allocated += pageSize - size_allocated%pageSize;
+        munmap((void*)m, size_allocated);
+        return;
+    }
+    //Update metadata and statistics
+    m->is_free = true;
+    freeBlocks++;
+    freeBytes += m->size;
+    //Recursively attempt to join free block to a buddy, if possible
+    while(join(&m)){}
+    //add the free block to the relevant linked list
+    add_to_list(get_order(m->size), m);
+}
+
+/**
+* Re-allocate block pointed by oldp to block of size 'size'.
+*/
+void* MemoryBlocksManager::realloc_block(void* oldp, size_t size){
+    mallocMetadata block_metadata = get_metaData(oldp);
+    if(size <=block_metadata->size) {   //If size is smaller or equal, simply return
+        return oldp;
+    }
+    if(can_join(block_metadata,block_metadata->size+sizeof(struct MallocMetadata), size)){
+        freeBytes += block_metadata->size;
+        block_metadata->is_free = true;
+        while(block_metadata->size < size)
+            join(&block_metadata);
+        freeBytes -= block_metadata->size;
+        block_metadata->is_free = false;
+        return get_allocPtr(block_metadata);
+    }
+    return alloc_block(size);
+}
+
+/**
  * Calculates the order (log base 2) for a given size based on the buddy system.
  */
 int MemoryBlocksManager::get_order(size_t size) {
@@ -365,6 +567,35 @@ void* MemoryBlocksManager::get_allocPtr(MallocMetadata* m) {
  */
 bool MemoryBlocksManager::isLargeAlloc(size_t size) {
     return size > BLOCKS_SET_SIZE * KB - sizeof(MallocMetadata);
+}
+
+
+static MemoryBlocksManager::size_t get_metadata_size(){
+    return sizeof(struct MallocMetadata);
+}
+
+size_t MemoryBlocksManager::get_size(void* p){
+    return get_metadata(p)->size;
+}
+
+size_t MemoryBlocksManager::get_totalBlocks(){
+    return totalBlocks;
+}
+
+size_t MemoryBlocksManager::get_totalBytes(){
+    return totalBytes;
+}
+
+size_t MemoryBlocksManager::get_freeBlocks(){
+    return freeBlocks;
+}
+
+size_t MemoryBlocksManager::get_freeBytes(){
+    return freeBytes;
+}
+
+MemoryBlocksManager::mallocMetadata MemoryBlocksManager::get_metadata(void* p){
+    return (mallocMetadata)((uintptr_t)p - sizeof(struct MallocMetadata));
 }
 
 /**
@@ -393,4 +624,70 @@ void* scalloc(size_t num, size_t size) {
     // memset() sets the allocated memory to zero
     std::memset(res, 0, num * size);
     return res;
+}
+
+/**
+ * Frees a block pointed by p
+ */
+void sfree(void* p){
+    BlockManager::getInstance().free_block(p);
+}
+
+/**
+ * Re-allocates the block pointed by oldp to a new block of size 'size'.
+ */
+void* srealloc(void* oldp, size_t size){
+    // Initialize the memory pool lazily
+    if(!MemoryBlocksManager::getInstance().lazy_init() || size > MAX_SIZE || size == 0) {
+        return nullptr;
+    }
+    if(!oldp) {
+        return smalloc(size);   //use smalloc in case oldp is NULL
+    }
+    void* res;
+    if(MemoryBlocksManager::getInstance().isLargeAlloc(size)){
+        //TODO: verify <= is valid and not ==
+        if(size <= MemoryBlocksManager::getInstance().get_size(oldp)) { //In case 'size' is smaller or equal , return oldp
+            return oldp;
+        }
+        res = MemoryBlocksManager::getInstance().lalloc_block(size);
+    }
+    else {
+        res = MemoryBlocksManager::getInstance().realloc_block(oldp, size);
+    }
+    if(!res) {
+        return nullptr;
+    }
+    if(res == oldp) {
+        return oldp;
+    }
+
+    size_t old_size = MemoryBlocksManager::getInstance().get_size(oldp) > size ? size : BlockManager::getInstance().get_size(oldp);
+    std::memmove(result, oldp, old_size);
+    sfree(oldp);
+    return result;
+}
+
+size_t _num_free_blocks() {
+    return MemoryBlocksManager::getInstance().get_freeBlocks();
+}
+
+size_t _num_free_bytes() {
+    return MemoryBlocksManager::getInstance().get_freeBytes();
+}
+
+size_t _num_allocated_blocks() {
+    return MemoryBlocksManager::getInstance().get_totalBlocks();
+}
+
+size_t _num_allocated_bytes() {
+    return MemoryBlocksManager::getInstance().get_totalBytes();
+}
+
+size_t _num_meta_data_bytes() {
+    return (_num_allocated_blocks() * MemoryBlocksManager::get_metadata_size());
+}
+
+size_t _size_meta_data() {
+    return MemoryBlocksManager::get_metadata_size();
 }
