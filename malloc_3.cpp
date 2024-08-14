@@ -27,10 +27,10 @@ private:
      * MallocMetadata Struct:
      * Contains metadata for each memory block.
      */
-    struct MallocMetadata {
+    typedef struct MallocMetadata {
         size_t size; // Size of the memory block
         bool is_free; // Flag indicating if the block is free
-        MallocMetadata* next; // Pointer to the next block in the linked list
+        MallocMetadata* next; // Pointer to the next b2lock in the linked list
         MallocMetadata* prev; // Pointer to the previous block in the linked list
 
         // Constructor to initialize metadata
@@ -263,7 +263,7 @@ bool MemoryBlocksManager::isEmpty(MallocMetadata& list) {
 /**
  * Joins between a free block to its buddy block, if possible
  */
-bool BlockManager::join(mallocMetadata* free_block){
+bool MemoryBlocksManager::join(mallocMetadata* free_block){
     if(get_order((*free_block)->size) == MAX_ORDER) {   //Can't join blocks of maximal size
         return false;
     }
@@ -472,28 +472,9 @@ void* MemoryBlocksManager::lalloc_block(size_t size) {
 }
 
 /**
-* Re-allocate block pointed by oldp to block of size 'size'.
-*/
-void* realloc_block(void* oldp, size_t size){
-    mallocMetadata block_metadata = get_metadata(oldp);
-    if(oldm->size >= size)
-        return oldp;
-    if(can_join(oldm,oldm->size+sizeof(struct MallocMetadata), size)){
-        freeBytes += oldm->size;
-        oldm->is_free = true;
-        while(oldm->size < size)
-            join(&oldm);
-        freeBytes -= oldm->size;
-        oldm->is_free = false;
-        return get_allocPtr(oldm);
-    }
-    return alloc_block(size);
-}
-
-/**
  * Frees a block pointed by p.
  */
-void MemoryBlocksManager::free_block(void *p) {}(void* p){
+void MemoryBlocksManager::free_block(void *p) {
     if(!p){     //If p is NULL, simply return
         return;
     }
@@ -506,29 +487,29 @@ void MemoryBlocksManager::free_block(void *p) {}(void* p){
         totalBlocks--;
         totalBytes -= block_metadata->size;
         //get allocated-size as a multiple of PAGESIZE and use munmap
-        int size_allocated = m->size+sizeof(struct MallocMetadata);
+        int size_allocated = block_metadata->size+sizeof(struct MallocMetadata);
         int pageSize = sysconf(_SC_PAGESIZE);
         if(size_allocated%pageSize != 0)
             size_allocated += pageSize - size_allocated%pageSize;
-        munmap((void*)m, size_allocated);
+        munmap((void*)block_metadata, size_allocated);
         return;
     }
     //Update metadata and statistics
-    m->is_free = true;
+    block_metadata->is_free = true;
     freeBlocks++;
-    freeBytes += m->size;
+    freeBytes += block_metadata->size;
     //Recursively attempt to join free block to a buddy, if possible
-    while(join(&m)){}
+    while(join(&block_metadata)){}
     //add the free block to the relevant linked list
-    add_to_list(get_order(m->size), m);
+    add_to_list(get_order(block_metadata->size), block_metadata);
 }
 
 /**
 * Re-allocate block pointed by oldp to block of size 'size'.
 */
 void* MemoryBlocksManager::realloc_block(void* oldp, size_t size){
-    mallocMetadata block_metadata = get_metaData(oldp);
-    if(size <=block_metadata->size) {   //If size is smaller or equal, simply return
+    MallocMetadata* block_metadata = get_metadata(oldp);
+    if(size <= block_metadata->size) {   // If size is smaller or equal, simply return
         return oldp;
     }
     if(can_join(block_metadata,block_metadata->size+sizeof(struct MallocMetadata), size)){
@@ -570,7 +551,7 @@ bool MemoryBlocksManager::isLargeAlloc(size_t size) {
 }
 
 
-static MemoryBlocksManager::size_t get_metadata_size(){
+size_t MemoryBlocksManager::get_metadata_size(){
     return sizeof(struct MallocMetadata);
 }
 
@@ -630,7 +611,7 @@ void* scalloc(size_t num, size_t size) {
  * Frees a block pointed by p
  */
 void sfree(void* p){
-    BlockManager::getInstance().free_block(p);
+    MemoryBlocksManager::getInstance().free_block(p);
 }
 
 /**
@@ -662,10 +643,10 @@ void* srealloc(void* oldp, size_t size){
         return oldp;
     }
 
-    size_t old_size = MemoryBlocksManager::getInstance().get_size(oldp) > size ? size : BlockManager::getInstance().get_size(oldp);
-    std::memmove(result, oldp, old_size);
+    size_t old_size = MemoryBlocksManager::getInstance().get_size(oldp) > size ? size : MemoryBlocksManager::getInstance().get_size(oldp);
+    std::memmove(res, oldp, old_size);
     sfree(oldp);
-    return result;
+    return res;
 }
 
 size_t _num_free_blocks() {
