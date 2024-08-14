@@ -1,6 +1,6 @@
 #include <stdio.h> // for size_t
 #include <unistd.h>
-#include <cstring.h>
+#include <cstring>
 
 #define MAX_SIZE 1e8
 
@@ -23,7 +23,7 @@ private:
      * MallocMetadata Struct:
      * Contains metadata for each memory block.
      */
-    struct MallocMetadata {
+    typedef struct MallocMetadata {
         size_t size; // Size of the memory block
         bool is_free; // Flag indicating if the block is free
         MallocMetadata* next; // Pointer to the next block in the linked list
@@ -38,7 +38,7 @@ private:
     size_t freeBytes; // Total free bytes
     size_t totalBlocks; // Total number of blocks
     size_t totalBytes; // Total allocated bytes
-    MallocMetadata metadataList; // Array of linked lists for different block sizes (buddy system)
+    MallocMetadata* metadataList; // Array of linked lists for different block sizes (buddy system)
 
     // Helper Functions:
 
@@ -79,7 +79,7 @@ private:
      * @param list - Reference to the list's head metadata
      * @return True if empty, else False
      */
-    bool isEmpty(MallocMetadata& list);
+    bool isEmpty(MallocMetadata* list);
 
     // Private Constructor for Singleton Pattern
     MemoryBlocksManager();
@@ -120,7 +120,7 @@ public:
      * Returns the size of MallocMetadata struct
      * @return size of MallocMetadata struct
      */
-    static size_t get_metadata_size();
+    size_t get_metadata_size();
 
     /**
      * Returns the size of the block pointed by p
@@ -161,34 +161,34 @@ MemoryBlocksManager::MemoryBlocksManager()
 /**
  * Checks if a linked list is empty.
  */
-bool MemoryBlocksManager::isEmpty(MallocMetadata& list) {
-    return list.next == nullptr;
+bool MemoryBlocksManager::isEmpty(MallocMetadata* list) {
+    return list->next == nullptr;
 }
 
 /**
  * Adds a block to the linked list in an ordered manner based on memory address.
  */
 void MemoryBlocksManager::add_to_list(MallocMetadata* block) {
-    MallocMetadata* next_metadata = metadataList.next;
-    MallocMetadata* prev_metadata = &metadataList;
+    MallocMetadata* next_metadata = metadataList->next;
+    MallocMetadata* prev_metadata = metadataList;
 
     while (next_metadata) {
-        if ((uintptr_t)next_metadata > (uintptr_t)block) {
+        if ((intptr_t)next_metadata > (intptr_t)block) {
             // Insert block between prev_meta and next_meta
-            block->next = next_meta;
-            block->prev = prev_meta;
-            next_meta->prev = block;
-            prev_meta->next = block;
+            block->next = next_metadata;
+            block->prev = prev_metadata;
+            next_metadata->prev = block;
+            prev_metadata->next = block;
             return;
         }
-        prev_meta = next_meta;
-        next_meta = next_meta->next;
+        prev_metadata = next_metadata;
+        next_metadata = next_metadata->next;
     }
 
     // Insert at the end
     block->next = nullptr;
-    block->prev = prev_meta;
-    prev_meta->next = block;
+    block->prev = prev_metadata;
+    prev_metadata->next = block;
 }
 
 /**
@@ -203,11 +203,18 @@ void MemoryBlocksManager::remove_from_list(MallocMetadata* block) {
 }
 
 /**
+ * Retrieves the allocation pointer from the metadata pointer.
+ */
+void* MemoryBlocksManager::get_allocPtr(MallocMetadata* m) {
+    return (void*)((uintptr_t)m + sizeof(MallocMetadata));
+}
+
+/**
  * Pops the first block from the linked list.
  */
 MemoryBlocksManager::MallocMetadata* MemoryBlocksManager::pop() {
     if (!isEmpty(metadataList)) {
-        MallocMetadata* res = metadataList.next;
+        MallocMetadata* res = metadataList->next;
         remove_from_list(res);
         return res;
     }
@@ -274,7 +281,7 @@ void* MemoryBlocksManager::realloc_block(void* oldp, size_t size){
     return alloc_block(size);
 }
 
-static MemoryBlocksManager::size_t get_metadata_size(){
+size_t MemoryBlocksManager::get_metadata_size(){
     return sizeof(struct MallocMetadata);
 }
 
@@ -299,11 +306,11 @@ size_t MemoryBlocksManager::get_freeBytes(){
 }
 
 MemoryBlocksManager::mallocMetadata MemoryBlocksManager::get_metadata(void* p){
-    return (mallocMetadata)((uintptr_t)p - sizeof(struct MallocMetadata));
+    return (mallocMetadata)((intptr_t)p - sizeof(struct MallocMetadata));
 }
 
 void* smalloc(size_t size) {
-    if (!MemoryBlocksManager::getInstance() || size > MAX_SIZE || size == 0) {
+    if (size > MAX_SIZE || size == 0) {
         return nullptr; // Invalid size or initialization failure
 
     }
@@ -324,7 +331,7 @@ void sfree(void* p) {
 }
 
 void* srealloc(void* oldp, size_t size) {
-    if (!MemoryBlocksManager::getInstance() || size > MAX_SIZE || size == 0) {
+    if (size > MAX_SIZE || size == 0) {
         return nullptr;
     }
     if (!oldp) { //If ‘oldp’ is NULL, allocates space for ‘size’ bytes and returns a pointer to it.
@@ -363,9 +370,9 @@ size_t _num_allocated_bytes() {
 }
 
 size_t _num_meta_data_bytes() {
-    return (_num_allocated_blocks() * MemoryBlocksManager::get_metadata_size());
+    return (_num_allocated_blocks() * MemoryBlocksManager::getInstance().get_metadata_size());
 }
 
 size_t _size_meta_data() {
-    return MemoryBlocksManager::get_metadata_size();
+    return MemoryBlocksManager::getInstance().get_metadata_size();
 }
