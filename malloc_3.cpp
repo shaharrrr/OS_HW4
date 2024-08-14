@@ -392,6 +392,10 @@ MemoryBlocksManager::MallocMetadata* MemoryBlocksManager::split(MallocMetadata* 
  * Allocates a memory block of the specified size using the buddy system.
  */
 void* MemoryBlocksManager::alloc_block(size_t size) {
+    if (init_pool_flag) {
+        lazy_init();
+    }
+    
     // Determine the appropriate order for the block size.
     // The order is determined based on the size of the block.
     // This helps in grouping blocks of similar sizes together for efficient allocation.
@@ -576,6 +580,7 @@ size_t MemoryBlocksManager::get_freeBytes(){
 }
 
 MemoryBlocksManager::mallocMetadata MemoryBlocksManager::get_metadata(void* p){
+    if (!p) return nullptr;
     return (mallocMetadata)((uintptr_t)p - sizeof(struct MallocMetadata));
 }
 

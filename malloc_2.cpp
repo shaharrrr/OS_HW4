@@ -206,7 +206,7 @@ void MemoryBlocksManager::remove_from_list(MallocMetadata* block) {
  * Retrieves the allocation pointer from the metadata pointer.
  */
 void* MemoryBlocksManager::get_allocPtr(MallocMetadata* m) {
-    return (void*)((uintptr_t)m + sizeof(MallocMetadata));
+    return (void*)((intptr_t)m + sizeof(MallocMetadata));
 }
 
 /**
@@ -306,6 +306,7 @@ size_t MemoryBlocksManager::get_freeBytes(){
 }
 
 MemoryBlocksManager::mallocMetadata MemoryBlocksManager::get_metadata(void* p){
+    if (!p) return nullptr;
     return (mallocMetadata)((intptr_t)p - sizeof(struct MallocMetadata));
 }
 
