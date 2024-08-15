@@ -38,7 +38,7 @@ private:
     size_t freeBytes; // Total free bytes
     size_t totalBlocks; // Total number of blocks
     size_t totalBytes; // Total allocated bytes
-    MallocMetadata* metadataList; // Array of linked lists for different block sizes (buddy system)
+    MallocMetadata metadataList; // Array of linked lists for different block sizes (buddy system)
 
     // Helper Functions:
 
@@ -57,29 +57,23 @@ private:
     void* get_allocPtr(MallocMetadata* m);
 
     /**
-     * Pops (removes and returns) the first block from the linked list.
-     * @return Pointer to the popped block
+     * Performs allocation to a block of size at least equal to 'size'
+     * @param size - Size of the allocation
+     * @return Allocation pointer
      */
-    MallocMetadata* pop();
+    void* alloc_to_free_block(size_t size);
 
     /**
      * Adds a block to the linked list in an ordered manner based on address.
      * @param block - Pointer to the block to add
      */
-    void add_to_list(MallocMetadata* block);
+    void add_to_list(mallocMetadata block);
 
     /**
      * Removes a block from the linked list.
      * @param block - Pointer to the block to remove
      */
     void remove_from_list(MallocMetadata* block);
-
-    /**
-     * Checks if the linked list is empty.
-     * @param list - Reference to the list's head metadata
-     * @return True if empty, else False
-     */
-    bool isEmpty(MallocMetadata* list);
 
     // Private Constructor for Singleton Pattern
     MemoryBlocksManager();
@@ -107,14 +101,6 @@ public:
      * @return void
      */
     void free_block(void* p);
-
-    /**
-     * Reallocates a memory block pointed by p to a new memory block of specified size.
-     * @param oldp - Pointer to the memory block
-     * @param size - New size of the memory block
-     * @return Pointer to the allocated memory or nullptr on failure
-     */
-    void* realloc_block(void* oldp, size_t size);
 
     /**
      * Returns the size of MallocMetadata struct
@@ -159,21 +145,14 @@ MemoryBlocksManager::MemoryBlocksManager()
         : freeBlocks(0), freeBytes(0), totalBlocks(0), totalBytes(0), metadataList() {}
 
 /**
- * Checks if a linked list is empty.
- */
-bool MemoryBlocksManager::isEmpty(MallocMetadata* list) {
-    return list->next == nullptr;
-}
-
-/**
  * Adds a block to the linked list in an ordered manner based on memory address.
  */
-void MemoryBlocksManager::add_to_list(MallocMetadata* block) {
-    MallocMetadata* next_metadata = metadataList->next;
-    MallocMetadata* prev_metadata = metadataList;
+void MemoryBlocksManager::add_to_list(mallocMetadata block) {
+    mallocMetadata next_metadata = metadataList.next;
+    mallocMetadata prev_metadata = &metadataList;
 
     while (next_metadata) {
-        if ((intptr_t)next_metadata > (intptr_t)block) {
+        if ((void*)next_metadata > (void*)block) {
             // Insert block between prev_meta and next_meta
             block->next = next_metadata;
             block->prev = prev_metadata;
@@ -203,6 +182,25 @@ void MemoryBlocksManager::remove_from_list(MallocMetadata* block) {
 }
 
 /**
+ * Performs allocation to a block of size at least equal to 'size'
+ */
+void* MemoryBlocksManager::alloc_to_free_block(size_t size){
+    mallocMetadata current = &metadataList;
+    while(current){     //traversing the linked list of free blocks
+        if(current->is_free && current->size >= size){
+            //Update metadata and statistics
+            current->is_free = false;
+            freeBlocks--;
+            freeBytes-=current->size;
+            remove_from_list(current);
+            return get_allocPtr(current);
+            }
+        current=current->next;
+    }
+    return (void*)-1;
+}
+
+/**
  * Retrieves the allocation pointer from the metadata pointer.
  */
 void* MemoryBlocksManager::get_allocPtr(MallocMetadata* m) {
@@ -210,50 +208,21 @@ void* MemoryBlocksManager::get_allocPtr(MallocMetadata* m) {
 }
 
 /**
- * Pops the first block from the linked list.
- */
-MemoryBlocksManager::MallocMetadata* MemoryBlocksManager::pop() {
-    if (!isEmpty(metadataList)) {
-        MallocMetadata* res = metadataList->next;
-        remove_from_list(res);
-        return res;
-    }
-    return nullptr; // List is empty
-}
-
-/**
  * Allocates a memory block of the specified size.
  */
 void* MemoryBlocksManager::alloc_block(size_t size) {
-    // Search for a free block
-    MallocMetadata* current = metadataList;
-    while (current) {
-        if (current->is_free && current->size >= size) {
-            current->is_free = false;
-
-            //Update statistics
-            freeBlocks--;
-            freeBytes -= current->size;
-
-            return get_allocPtr(current);
-        }
-        current = current->next;
+    void* result = alloc_to_free_block(size);
+    if(result != (void*)-1){    //if successfully allocated a free block that satisfies request, return the allocation pointer
+        return result;
     }
-    // Allocate new block if no free block is found
-    void* result;
-    DO_SBRK(result, (size + sizeof(MallocMetadata)));
-
-    MallocMetadata* new_metadata = (MallocMetadata*)result;
-    new_metadata->size = size;
-    new_metadata->is_free = false;
-    new_metadata->next = nullptr;
-    new_metadata->prev = nullptr;
-    add_to_list(new_metadata);
-
-    //update statistics
-    totalBlocks++;
+    //otherwise, allocate a new block
+    DO_SBRK(result, size+sizeof(struct MallocMetadata));
+    mallocMetadata new_metadata = (mallocMetadata)result;
+    //Update statistics and metadata
     totalBytes += size;
-
+    totalBlocks++;
+    new_metadata->is_free = false;
+    new_metadata->size = size;
     return get_allocPtr(new_metadata);
 }
 
@@ -268,17 +237,11 @@ void MemoryBlocksManager::free_block(void *p) {
     if(block_metadata->is_free) {   //if the block is already released, simply return
         return;
     }
+    //Update metadata and add to the free blocks list
     block_metadata->is_free = true;
     freeBlocks++;
     freeBytes += block_metadata->size;
-}
-
-void* MemoryBlocksManager::realloc_block(void* oldp, size_t size){
-    mallocMetadata oldMetadata = get_metadata(oldp);
-    if(size <= oldMetadata->size) {
-        return oldp;
-    }
-    return alloc_block(size);
+    add_to_list(block_metadata);
 }
 
 size_t MemoryBlocksManager::get_metadata_size(){
@@ -321,9 +284,10 @@ void* smalloc(size_t size) {
 void* scalloc(size_t num, size_t size) {
     size_t total_size = num * size;
     void* ptr = smalloc(total_size);
-    if (ptr) {
-        std::memset(ptr, 0, total_size);
+    if (!ptr) {
+        return nullptr;
     }
+    std::memset(ptr, 0, total_size);
     return ptr;
 }
 
@@ -339,17 +303,16 @@ void* srealloc(void* oldp, size_t size) {
         return smalloc(size);
     }
     void *result;
-    result = MemoryBlocksManager::getInstance().realloc_block(oldp, size);
-
-    if (!result) {   //if result is NULL, allocation failed. Return NULL
-        return nullptr;
-    }
-    if (result == oldp) {    //if result is oldp it means that size was smaller than or equal to oldp size, no allocation is performed
+    if(size <= MemoryBlocksManager::getInstance().get_size(oldp)) {
         return oldp;
     }
-
-    size_t old_size = MemoryBlocksManager::getInstance().get_size(oldp);
-    std::memmove(result, oldp, old_size);
+    else{
+        result = smalloc(size);
+        if(!result){
+            return nullptr;
+        }
+    }
+    std::memmove(result,oldp,MemoryBlocksManager::getInstance().get_size(oldp));
     sfree(oldp);
     return result;
 }
