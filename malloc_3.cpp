@@ -298,7 +298,7 @@ bool MemoryBlocksManager::can_join(mallocMetadata free_block, size_t size, size_
     if(get_order(dest_size) == -1) {  //dest_size exceeds maximum manageable block size
         return false;
     }
-    if(size  >= dest_size) {  //Shahar: if size is bigger than dest_size can the block always join?
+    if(size  >= dest_size) {
         return true;
     }
     //Get the potential buddy using the XOR trick provided by staff
@@ -632,8 +632,7 @@ void* srealloc(void* oldp, size_t size){
     }
     void* res;
     if(MemoryBlocksManager::getInstance().isLargeAlloc(size)){
-        //TODO: verify <= is valid and not ==
-        if(size <= MemoryBlocksManager::getInstance().get_size(oldp)) { //In case 'size' is smaller or equal , return oldp
+        if(size == MemoryBlocksManager::getInstance().get_size(oldp)) { //In case 'size' is smaller or equal , return oldp
             return oldp;
         }
         res = MemoryBlocksManager::getInstance().lalloc_block(size);
